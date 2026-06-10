@@ -100,6 +100,21 @@ alter table parts
     )
   ) stored;
 
+-- Plain-text version of the same fields for SUBSTRING (ilike '%fragment%')
+-- search. search_doc handles whole-word/stemmed matches, but a fragment like
+-- 'bur' is not a lexeme, so it would miss 'burning' in a description. Matching
+-- this column keeps substring search a true superset (shorter term -> >= results)
+-- across all of a part's own text, and a trigram index below keeps it fast.
+alter table parts
+  add column if not exists search_text text
+  generated always as (
+    coalesce(part_number, '') || ' ' ||
+    coalesce(name, '')        || ' ' ||
+    coalesce(category, '')    || ' ' ||
+    coalesce(description, '') || ' ' ||
+    coalesce(text_array_to_string(keywords, ' '), '')
+  ) stored;
+
 -- ----------------------------------------------------------------------------
 -- Indexes (foreign keys + common filters + search)
 -- ----------------------------------------------------------------------------
@@ -112,17 +127,20 @@ create index if not exists part_models_model_id_idx on part_models (model_id);
 -- Full-text (websearch_to_tsquery) over each part's own text.
 create index if not exists parts_search_doc_idx on parts using gin (search_doc);
 
--- Trigram indexes for substring (ilike '%fragment%') search. part_number and
--- name are matched directly; supplier and model names are matched through their
--- own tables, so they get trigram indexes too.
-create index if not exists parts_part_number_trgm_idx
-  on parts using gin (part_number gin_trgm_ops);
-create index if not exists parts_name_trgm_idx
-  on parts using gin (name gin_trgm_ops);
+-- Trigram indexes for substring (ilike '%fragment%') search. One index over the
+-- combined search_text covers all of a part's own fields; supplier and model
+-- names are matched through their own tables, so they get trigram indexes too.
+create index if not exists parts_search_text_trgm_idx
+  on parts using gin (search_text gin_trgm_ops);
 create index if not exists suppliers_name_trgm_idx
   on suppliers using gin (name gin_trgm_ops);
 create index if not exists boiler_models_name_trgm_idx
   on boiler_models using gin (name gin_trgm_ops);
+
+-- Superseded by parts_search_text_trgm_idx (which covers part_number + name and
+-- more); drop them so a re-run does not leave redundant indexes consuming RAM.
+drop index if exists parts_part_number_trgm_idx;
+drop index if exists parts_name_trgm_idx;
 
 -- ----------------------------------------------------------------------------
 -- updated_at maintenance
@@ -286,8 +304,7 @@ as $$
       and (
         query is null
         or query = ''
-        or p.part_number ilike '%' || query || '%'
-        or p.name ilike '%' || query || '%'
+        or p.search_text ilike '%' || query || '%'
         or p.search_doc @@ websearch_to_tsquery('english', query)
       )
     union
