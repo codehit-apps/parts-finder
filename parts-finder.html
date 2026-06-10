@@ -1,0 +1,956 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Parts Finder | Hartmann Boiler Works</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #f2efe6;
+    --paper-line: #e3dfd2;
+    --ink: #1d1f21;
+    --ink-soft: #55585c;
+    --steel: #2a2d31;
+    --steel-deep: #1d1f21;
+    --orange: #f24c00;
+    --orange-deep: #d13f00;
+    --green: #1d7a4f;
+    --green-soft: #e2efe7;
+    --orange-soft: #fde9df;
+    --mono: "IBM Plex Mono", monospace;
+    --sans: "IBM Plex Sans", sans-serif;
+    --display: "Big Shoulders", sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: var(--sans);
+    background-color: var(--paper);
+    background-image:
+      linear-gradient(var(--paper-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--paper-line) 1px, transparent 1px);
+    background-size: 32px 32px;
+    color: var(--ink);
+    min-height: 100vh;
+  }
+
+  ::selection { background: var(--orange); color: #fff; }
+
+  /* ---------- Header ---------- */
+
+  .site-header {
+    background: var(--steel-deep);
+    color: #f2efe6;
+    border-bottom: 4px solid var(--orange);
+  }
+
+  .site-header-inner {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 18px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .brand-mark {
+    width: 42px;
+    height: 42px;
+    background: var(--orange);
+    display: grid;
+    place-items: center;
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: 26px;
+    color: #fff;
+    clip-path: polygon(0 0, 100% 0, 100% 78%, 78% 100%, 0 100%);
+  }
+
+  .brand-name {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 24px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    line-height: 1;
+  }
+
+  .brand-sub {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: #9a9da1;
+    margin-top: 4px;
+  }
+
+  .header-nav {
+    display: flex;
+    gap: 22px;
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .header-nav a {
+    color: #b8bbbe;
+    text-decoration: none;
+    padding-bottom: 2px;
+    border-bottom: 2px solid transparent;
+  }
+
+  .header-nav a:hover { color: #fff; }
+
+  .header-nav a.active {
+    color: #fff;
+    border-bottom-color: var(--orange);
+  }
+
+  @media (max-width: 640px) {
+    .header-nav { display: none; }
+  }
+
+  /* ---------- Hero / search panel ---------- */
+
+  .hero {
+    background: var(--steel);
+    color: #f2efe6;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .hero::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image: repeating-linear-gradient(
+      -45deg,
+      transparent 0 26px,
+      rgba(242, 76, 0, 0.07) 26px 52px
+    );
+    pointer-events: none;
+  }
+
+  .hero-inner {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 56px 24px 64px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .hero-kicker {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--orange);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    animation: rise 0.5s ease-out both;
+  }
+
+  .hero-kicker::before {
+    content: "";
+    width: 36px;
+    height: 2px;
+    background: var(--orange);
+  }
+
+  .hero h1 {
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: clamp(44px, 7vw, 76px);
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    line-height: 0.95;
+    margin: 14px 0 10px;
+    animation: rise 0.5s ease-out 0.08s both;
+  }
+
+  .hero h1 em {
+    font-style: normal;
+    color: var(--orange);
+  }
+
+  .hero p.lede {
+    max-width: 560px;
+    color: #b8bbbe;
+    font-size: 15px;
+    line-height: 1.6;
+    animation: rise 0.5s ease-out 0.16s both;
+  }
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(14px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ---------- Search box ---------- */
+
+  .search-shell {
+    margin-top: 32px;
+    animation: rise 0.5s ease-out 0.24s both;
+  }
+
+  .search-box {
+    display: flex;
+    background: #fff;
+    border: 2px solid var(--ink);
+    box-shadow: 6px 6px 0 var(--orange);
+    max-width: 720px;
+  }
+
+  .search-box:focus-within {
+    box-shadow: 6px 6px 0 var(--orange-deep);
+    transform: translate(-1px, -1px);
+  }
+
+  .search-box input {
+    flex: 1;
+    border: none;
+    outline: none;
+    padding: 18px 20px;
+    font-family: var(--mono);
+    font-size: 15px;
+    color: var(--ink);
+    background: transparent;
+    min-width: 0;
+  }
+
+  .search-box input::placeholder { color: #9a9da1; }
+
+  .search-box button {
+    border: none;
+    background: var(--orange);
+    color: #fff;
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 18px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0 30px;
+    cursor: pointer;
+  }
+
+  .search-box button:hover { background: var(--orange-deep); }
+
+  .search-hints {
+    margin-top: 14px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: #9a9da1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .search-hints .try-chip {
+    border: 1px solid #55585c;
+    color: #d6d8da;
+    padding: 4px 10px;
+    cursor: pointer;
+    background: transparent;
+    font-family: var(--mono);
+    font-size: 11px;
+    transition: all 0.15s ease;
+  }
+
+  .search-hints .try-chip:hover {
+    border-color: var(--orange);
+    color: var(--orange);
+  }
+
+  /* ---------- Results section ---------- */
+
+  .results-wrap {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 40px 24px 90px;
+  }
+
+  .results-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    margin-bottom: 26px;
+  }
+
+  .filter-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .filter-chip {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding: 7px 14px;
+    border: 1.5px solid var(--ink);
+    background: transparent;
+    color: var(--ink);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .filter-chip:hover { background: #fff; }
+
+  .filter-chip.on {
+    background: var(--ink);
+    color: var(--paper);
+  }
+
+  .result-count {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-soft);
+    letter-spacing: 0.05em;
+  }
+
+  .result-count strong { color: var(--orange-deep); }
+
+  /* ---------- Exact match banner ---------- */
+
+  .exact-banner {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--green);
+    margin: 0 0 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .exact-banner::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    background: var(--green);
+    border-radius: 50%;
+  }
+
+  .section-label {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 22px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin: 38px 0 16px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .section-label::after {
+    content: "";
+    flex: 1;
+    height: 2px;
+    background: var(--ink);
+    opacity: 0.15;
+  }
+
+  /* ---------- Part cards ---------- */
+
+  .parts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+    gap: 18px;
+  }
+
+  .part-card {
+    background: #fff;
+    border: 2px solid var(--ink);
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    animation: card-in 0.35s ease-out both;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  .part-card:hover {
+    transform: translate(-2px, -2px);
+    box-shadow: 5px 5px 0 rgba(29, 31, 33, 0.85);
+  }
+
+  .part-card.exact {
+    border-width: 3px;
+    box-shadow: 7px 7px 0 var(--orange);
+  }
+
+  .part-card.exact:hover { box-shadow: 9px 9px 0 var(--orange); }
+
+  @keyframes card-in {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .part-head {
+    padding: 14px 16px 12px;
+    border-bottom: 1.5px dashed var(--paper-line);
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .part-number {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--orange-deep);
+    background: var(--orange-soft);
+    padding: 3px 8px;
+    display: inline-block;
+  }
+
+  .part-cat {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    text-align: right;
+    padding-top: 4px;
+    white-space: nowrap;
+  }
+
+  .part-body {
+    padding: 14px 16px;
+    flex: 1;
+  }
+
+  .part-name {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 24px;
+    line-height: 1.05;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    margin-bottom: 10px;
+  }
+
+  .part-name mark, .part-number mark {
+    background: #ffe14d;
+    color: inherit;
+    padding: 0 1px;
+  }
+
+  .part-desc {
+    font-size: 12.5px;
+    color: var(--ink-soft);
+    line-height: 1.55;
+    margin-bottom: 10px;
+  }
+
+  .part-meta {
+    font-size: 12.5px;
+    color: var(--ink-soft);
+    line-height: 1.7;
+  }
+
+  .part-meta b {
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  .part-models {
+    margin-top: 10px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+
+  .model-tag {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--ink-soft);
+    border: 1px solid var(--paper-line);
+    background: var(--paper);
+    padding: 2px 7px;
+  }
+
+  .part-foot {
+    border-top: 2px solid var(--ink);
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    background: #fbfaf6;
+  }
+
+  .price {
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: 26px;
+    line-height: 1;
+  }
+
+  .price .cur {
+    font-size: 14px;
+    vertical-align: top;
+    margin-right: 2px;
+    color: var(--ink-soft);
+  }
+
+  .badge {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 5px 9px;
+    border: 1.5px solid;
+    transform: rotate(-1.5deg);
+  }
+
+  .badge.warranty {
+    color: var(--green);
+    border-color: var(--green);
+    background: var(--green-soft);
+  }
+
+  .badge.sale {
+    color: var(--orange-deep);
+    border-color: var(--orange-deep);
+    background: var(--orange-soft);
+  }
+
+  .badge.oem {
+    color: var(--ink-soft);
+    border-color: var(--ink-soft);
+    background: var(--paper);
+    transform: rotate(0deg);
+  }
+
+  .stock-line {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .stock-line.in { color: var(--green); }
+  .stock-line.low { color: var(--orange-deep); }
+  .stock-line.out { color: #9a242a; }
+
+  /* ---------- Empty / no results ---------- */
+
+  .state-panel {
+    border: 2px dashed var(--ink-soft);
+    background: rgba(255, 255, 255, 0.6);
+    padding: 56px 30px;
+    text-align: center;
+    animation: card-in 0.3s ease-out both;
+  }
+
+  .state-panel .big {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 30px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 8px;
+  }
+
+  .state-panel p {
+    color: var(--ink-soft);
+    font-size: 14px;
+    max-width: 460px;
+    margin: 0 auto;
+    line-height: 1.6;
+  }
+
+  .state-panel .mono {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--orange-deep);
+  }
+
+  /* ---------- Footer ---------- */
+
+  .site-footer {
+    background: var(--steel-deep);
+    color: #9a9da1;
+    border-top: 4px solid var(--orange);
+  }
+
+  .site-footer-inner {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 26px 24px;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 12px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+  }
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="site-header-inner">
+    <div class="brand">
+      <div class="brand-mark">H</div>
+      <div>
+        <div class="brand-name">Hartmann Boiler Works</div>
+        <div class="brand-sub">EST. 1962 / INDUSTRIAL HEATING</div>
+      </div>
+    </div>
+    <nav class="header-nav">
+      <a href="#">Boilers</a>
+      <a href="#" class="active">Parts Finder</a>
+      <a href="#">Service</a>
+      <a href="#">Contact</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="hero-inner">
+    <div class="hero-kicker">Genuine + Replacement Parts Catalog</div>
+    <h1>Find the <em>exact part</em><br>your boiler needs.</h1>
+    <p class="lede">
+      Search by part number, part name, or keyword. Replacement parts are free
+      of charge for boilers still under warranty; all other parts are available
+      for purchase from our approved suppliers.
+    </p>
+
+    <div class="search-shell">
+      <form class="search-box" id="search-form" autocomplete="off">
+        <input type="text" id="search-input" placeholder="e.g. 0020132683, ignition electrode, no hot water..." aria-label="Search parts">
+        <button type="submit">Search</button>
+      </form>
+      <div class="search-hints">
+        <span>TRY:</span>
+        <button type="button" class="try-chip" data-q="0020132683">0020132683</button>
+        <button type="button" class="try-chip" data-q="pump">pump</button>
+        <button type="button" class="try-chip" data-q="no hot water">no hot water</button>
+        <button type="button" class="try-chip" data-q="no ignition">no ignition</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<main class="results-wrap">
+  <div class="results-toolbar">
+    <div class="filter-chips" id="filter-chips"></div>
+    <div class="result-count" id="result-count"></div>
+  </div>
+  <div id="results"></div>
+</main>
+
+<footer class="site-footer">
+  <div class="site-footer-inner">
+    <span>HARTMANN BOILER WORKS GMBH / PARTS DIVISION</span>
+    <span>DEMO BUILD / PARTS FINDER V0.1</span>
+  </div>
+</footer>
+
+<script>
+  // ---------------------------------------------------------------
+  // Catalog is loaded from a JSON API. For this static demo it is a
+  // flat parts.json file; on the live PHP site, point API_URL at the
+  // real endpoint instead, e.g. "/api/parts.php".
+  // ---------------------------------------------------------------
+  var API_URL = "parts.json";
+  var PARTS = [];
+
+  // ---------------------------------------------------------------
+  // Search engine
+  // ---------------------------------------------------------------
+  var state = { query: "", category: "ALL" };
+
+  function normalize(text) {
+    return text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  }
+
+  function scorePart(part, rawQuery) {
+    var query = rawQuery.trim().toLowerCase();
+    if (!query) return 0;
+
+    var partNumber = part.partNumber.toLowerCase();
+    var name = part.name.toLowerCase();
+    var haystack = normalize([
+      part.partNumber, part.name, part.category, part.supplier,
+      part.description, part.keywords.join(" "), part.models.join(" ")
+    ].join(" "));
+
+    // Exact part number match wins outright.
+    if (partNumber === query || normalize(partNumber) === normalize(query)) return 1000;
+
+    var score = 0;
+    if (partNumber.indexOf(query) === 0) score += 400;          // part number prefix
+    else if (partNumber.indexOf(query) !== -1) score += 250;    // part number fragment
+    if (name === query) score += 300;                           // exact name
+    if (name.indexOf(query) !== -1) score += 150;               // name contains phrase
+
+    var tokens = normalize(query).split(" ").filter(Boolean);
+    var matched = 0;
+    for (var i = 0; i < tokens.length; i++) {
+      var token = tokens[i];
+      if (haystack.indexOf(token) === -1) continue;
+      matched++;
+      if (normalize(name).indexOf(token) !== -1) score += 60;
+      else if (normalize(part.keywords.join(" ")).indexOf(token) !== -1) score += 45;
+      else score += 25;
+    }
+    if (tokens.length > 1 && matched === tokens.length) score += 40; // all tokens hit
+
+    return matched > 0 ? score : score; // score is 0 if nothing matched
+  }
+
+  function runSearch() {
+    var results = [];
+    for (var i = 0; i < PARTS.length; i++) {
+      var part = PARTS[i];
+      if (state.category !== "ALL" && part.category !== state.category) continue;
+      if (!state.query) {
+        results.push({ part: part, score: 0 });
+        continue;
+      }
+      var score = scorePart(part, state.query);
+      if (score > 0) results.push({ part: part, score: score });
+    }
+    results.sort(function (a, b) { return b.score - a.score; });
+    return results;
+  }
+
+  // ---------------------------------------------------------------
+  // Rendering
+  // ---------------------------------------------------------------
+  var resultsEl = document.getElementById("results");
+  var countEl = document.getElementById("result-count");
+  var chipsEl = document.getElementById("filter-chips");
+  var inputEl = document.getElementById("search-input");
+
+  function escapeHtml(text) {
+    return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  function highlight(text, query) {
+    var safe = escapeHtml(text);
+    var trimmed = query.trim();
+    if (!trimmed) return safe;
+    var tokens = trimmed.split(/\s+/).filter(function (t) { return t.length > 1; });
+    if (trimmed.length > 1) tokens.unshift(trimmed);
+    for (var i = 0; i < tokens.length; i++) {
+      var escaped = tokens[i].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      var pattern = new RegExp("(" + escaped + ")(?![^<]*>)", "i");
+      if (pattern.test(safe)) { safe = safe.replace(pattern, "<mark>$1</mark>"); break; }
+    }
+    return safe;
+  }
+
+  function formatPrice(value) {
+    return value.toFixed(2);
+  }
+
+  function stockLabel(stock) {
+    if (stock === "in") return '<span class="stock-line in">In stock</span>';
+    if (stock === "low") return '<span class="stock-line low">Low stock</span>';
+    return '<span class="stock-line out">On order</span>';
+  }
+
+  function renderCard(part, isExact, index) {
+    var badges = "";
+    if (part.replacement) {
+      badges += '<span class="badge warranty">Free under warranty</span>';
+    } else {
+      badges += '<span class="badge oem">Service item</span>';
+    }
+
+    var models = part.models.map(function (model) {
+      return '<span class="model-tag">' + escapeHtml(model) + "</span>";
+    }).join("");
+
+    return (
+      '<article class="part-card' + (isExact ? " exact" : "") + '" style="animation-delay:' + (index * 45) + 'ms">' +
+        '<div class="part-head">' +
+          '<span class="part-number">' + highlight(part.partNumber, state.query) + "</span>" +
+          '<span class="part-cat">' + escapeHtml(part.category) + "</span>" +
+        "</div>" +
+        '<div class="part-body">' +
+          '<h3 class="part-name">' + highlight(part.name, state.query) + "</h3>" +
+          '<p class="part-desc">' + escapeHtml(part.description) + "</p>" +
+          '<div class="part-meta">' +
+            "Supplier: <b>" + escapeHtml(part.supplier) + "</b><br>" +
+            stockLabel(part.stock) +
+          "</div>" +
+          '<div class="part-models">' + models + "</div>" +
+        "</div>" +
+        '<div class="part-foot">' +
+          '<div class="price"><span class="cur">GBP</span>' + formatPrice(part.price) + "</div>" +
+          badges +
+        "</div>" +
+      "</article>"
+    );
+  }
+
+  function render() {
+    var results = runSearch();
+    var query = state.query.trim();
+    var html = "";
+
+    if (!query && state.category === "ALL") {
+      countEl.innerHTML = "<strong>" + PARTS.length + "</strong> PARTS IN CATALOG";
+      html += '<div class="section-label">Full Catalog</div>';
+      html += '<div class="parts-grid">' + results.map(function (r, i) {
+        return renderCard(r.part, false, i);
+      }).join("") + "</div>";
+      resultsEl.innerHTML = html;
+      return;
+    }
+
+    if (results.length === 0) {
+      countEl.innerHTML = "<strong>0</strong> RESULTS";
+      resultsEl.innerHTML =
+        '<div class="state-panel">' +
+          '<div class="big">No matching parts</div>' +
+          "<p>Nothing in the catalog matches <span class=\"mono\">" + escapeHtml(query || state.category) + "</span>. " +
+          "Check the part number on the rating plate inside the boiler casing, or try a broader keyword like " +
+          "<span class=\"mono\">valve</span>, <span class=\"mono\">sensor</span> or <span class=\"mono\">leaking</span>.</p>" +
+        "</div>";
+      return;
+    }
+
+    var exact = results[0].score >= 1000 ? results[0] : null;
+    var rest = exact ? results.slice(1) : results;
+
+    countEl.innerHTML = "<strong>" + results.length + "</strong> RESULT" + (results.length === 1 ? "" : "S") +
+      (query ? ' FOR "' + escapeHtml(query.toUpperCase()) + '"' : "");
+
+    if (exact) {
+      html += '<div class="exact-banner">Exact part number match</div>';
+      html += '<div class="parts-grid">' + renderCard(exact.part, true, 0) + "</div>";
+      // Related = same category or shared boiler model, already in scored order.
+      var related = rest.filter(function (r) {
+        return r.part.category === exact.part.category ||
+          r.part.models.some(function (m) { return exact.part.models.indexOf(m) !== -1; });
+      });
+      if (related.length === 0) related = rest;
+      related = related.slice(0, 6);
+      countEl.innerHTML = "<strong>1</strong> EXACT MATCH + " + related.length + " RELATED" +
+        ' FOR "' + escapeHtml(query.toUpperCase()) + '"';
+      if (related.length) {
+        html += '<div class="section-label">Related Parts</div>';
+        html += '<div class="parts-grid">' + related.map(function (r, i) {
+          return renderCard(r.part, false, i);
+        }).join("") + "</div>";
+      }
+    } else {
+      html += '<div class="section-label">' + (query ? "Matching Parts" : escapeHtml(state.category)) + "</div>";
+      html += '<div class="parts-grid">' + results.map(function (r, i) {
+        return renderCard(r.part, false, i);
+      }).join("") + "</div>";
+    }
+
+    resultsEl.innerHTML = html;
+  }
+
+  // ---------------------------------------------------------------
+  // Filters & events
+  // ---------------------------------------------------------------
+  function renderChips() {
+    var categories = ["ALL"];
+    for (var i = 0; i < PARTS.length; i++) {
+      if (categories.indexOf(PARTS[i].category) === -1) categories.push(PARTS[i].category);
+    }
+    chipsEl.innerHTML = categories.map(function (category) {
+      return '<button type="button" class="filter-chip' +
+        (state.category === category ? " on" : "") +
+        '" data-cat="' + escapeHtml(category) + '">' + escapeHtml(category) + "</button>";
+    }).join("");
+  }
+
+  chipsEl.addEventListener("click", function (event) {
+    var chip = event.target.closest(".filter-chip");
+    if (!chip) return;
+    state.category = chip.getAttribute("data-cat");
+    renderChips();
+    render();
+  });
+
+  document.getElementById("search-form").addEventListener("submit", function (event) {
+    event.preventDefault();
+    state.query = inputEl.value;
+    render();
+  });
+
+  var debounceTimer = null;
+  inputEl.addEventListener("input", function () {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(function () {
+      state.query = inputEl.value;
+      render();
+    }, 160);
+  });
+
+  document.querySelectorAll(".try-chip").forEach(function (chip) {
+    chip.addEventListener("click", function () {
+      inputEl.value = chip.getAttribute("data-q");
+      state.query = inputEl.value;
+      render();
+      document.querySelector(".results-wrap").scrollIntoView({ behavior: "smooth" });
+    });
+  });
+
+  function loadCatalog() {
+    resultsEl.innerHTML =
+      '<div class="state-panel">' +
+        '<div class="big">Loading catalog...</div>' +
+        '<p>Fetching parts from <span class="mono">' + escapeHtml(API_URL) + "</span></p>" +
+      "</div>";
+    fetch(API_URL)
+      .then(function (response) {
+        if (!response.ok) throw new Error("HTTP " + response.status);
+        return response.json();
+      })
+      .then(function (payload) {
+        PARTS = payload.parts || [];
+        renderChips();
+        render();
+      })
+      .catch(function (error) {
+        countEl.innerHTML = "";
+        resultsEl.innerHTML =
+          '<div class="state-panel">' +
+            '<div class="big">Catalog unavailable</div>' +
+            "<p>Could not load parts from <span class=\"mono\">" + escapeHtml(API_URL) + "</span> " +
+            "(" + escapeHtml(String(error.message)) + "). Check that the API endpoint is reachable and try again.</p>" +
+          "</div>";
+      });
+  }
+
+  renderChips();
+  loadCatalog();
+</script>
+
+</body>
+</html>

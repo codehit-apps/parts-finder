@@ -1,0 +1,12 @@
+# Local tooling / test artifacts
+.playwright-mcp/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Internal scratch notes (superseded by README.md; would otherwise be served
+# publicly by GitHub Pages). Remove these lines if you want them in the repo.
+request.txt
+README.txt

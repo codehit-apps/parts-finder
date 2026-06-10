@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Parts Finder | Hartmann Boiler Works</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/finder.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="site-header-inner">
+    <div class="brand">
+      <div class="brand-mark">H</div>
+      <div>
+        <div class="brand-name">Hartmann Boiler Works</div>
+        <div class="brand-sub">EST. 1962 / INDUSTRIAL HEATING</div>
+      </div>
+    </div>
+    <nav class="header-nav">
+      <a href="#">Boilers</a>
+      <a href="#" class="active">Parts Finder</a>
+      <a href="#">Service</a>
+      <a href="#">Contact</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="hero-inner">
+    <div class="hero-kicker">Genuine + Replacement Parts Catalog</div>
+    <h1>Find the <em>exact part</em><br>your boiler needs.</h1>
+    <p class="lede">
+      Search by part number, part name, or keyword. Replacement parts are free
+      of charge for boilers still under warranty; all other parts are available
+      for purchase from our approved suppliers.
+    </p>
+
+    <div class="search-shell">
+      <form class="search-box" id="search-form" autocomplete="off">
+        <input type="text" id="search-input" placeholder="e.g. 0020132683, ignition electrode, no hot water..." aria-label="Search parts">
+        <button type="submit">Search</button>
+      </form>
+      <div class="search-hints">
+        <span>TRY:</span>
+        <button type="button" class="try-chip" data-q="0020132683">0020132683</button>
+        <button type="button" class="try-chip" data-q="pump">pump</button>
+        <button type="button" class="try-chip" data-q="no hot water">no hot water</button>
+        <button type="button" class="try-chip" data-q="no ignition">no ignition</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<main class="results-wrap">
+  <div class="results-toolbar">
+    <div class="filter-chips" id="filter-chips"></div>
+    <div class="result-count" id="result-count"></div>
+  </div>
+  <div id="results"></div>
+</main>
+
+<footer class="site-footer">
+  <div class="site-footer-inner">
+    <span>HARTMANN BOILER WORKS GMBH / PARTS DIVISION</span>
+    <span><a href="admin/">Staff Login</a> / PARTS FINDER V1.0</span>
+  </div>
+</footer>
+
+<script src="assets/js/config.js"></script>
+<script type="module" src="assets/js/finder.js"></script>
+
+</body>
+</html>
