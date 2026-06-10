@@ -220,7 +220,7 @@ function renderPartsTable() {
         "<td><b>" + escapeHtml(part.name) + "</b><br>" + modelPills + "</td>" +
         "<td>" + escapeHtml(part.category) + "</td>" +
         "<td>" + escapeHtml(supplierName(part.supplier_id)) + "</td>" +
-        "<td>" + (part.price != null ? "GBP " + Number(part.price).toFixed(2) : "&mdash;") + "</td>" +
+        "<td>" + (part.price != null ? "USD " + Number(part.price).toFixed(2) : "&mdash;") + "</td>" +
         "<td>" + escapeHtml(part.stock) + "<br>" + warranty + "</td>" +
         '<td class="cell-actions">' +
           '<button type="button" class="btn btn-small" data-edit="' + part.id + '">Edit</button>' +

@@ -141,7 +141,7 @@ function renderCard(part, isExact, index) {
         '<div class="part-models">' + models + "</div>" +
       "</div>" +
       '<div class="part-foot">' +
-        '<div class="price"><span class="cur">GBP</span>' + formatPrice(part.price) + "</div>" +
+        '<div class="price"><span class="cur">USD</span>' + formatPrice(part.price) + "</div>" +
         badges +
       "</div>" +
     "</article>"
