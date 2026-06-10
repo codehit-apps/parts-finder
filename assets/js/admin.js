@@ -21,6 +21,15 @@ import { supabase, isConfigured } from "./supabase-client.js";
 var el = function (id) { return document.getElementById(id); };
 
 var PAGE_SIZE = 20;
+var MIN_QUERY = 3; // ignore search terms shorter than this (treated as no filter)
+
+// The search term actually sent to the server: blank unless it is long enough,
+// so a 1-2 char term browses the full (optionally category-filtered) list rather
+// than firing a noisy fragment search.
+function effectiveQuery() {
+  var query = pageState.query.trim();
+  return query.length >= MIN_QUERY ? query : "";
+}
 
 // ---------------------------------------------------------------------------
 // Element references
@@ -151,7 +160,7 @@ async function loadPartsPage() {
   var response = await supabase
     .rpc("search_parts",
       {
-        query: pageState.query.trim(),
+        query: effectiveQuery(),
         filter_category: pageState.category === "ALL" ? null : pageState.category
       },
       { count: "exact" })
@@ -203,7 +212,7 @@ function renderCategoryFilter() {
 }
 
 function isFiltered() {
-  return pageState.query.trim() !== "" || pageState.category !== "ALL";
+  return effectiveQuery() !== "" || pageState.category !== "ALL";
 }
 
 function renderPartsTable() {

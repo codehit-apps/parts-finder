@@ -162,6 +162,20 @@ server-side**, so the browser never downloads the whole catalog:
 - This avoids PostgREST's max-rows truncation, keeps payloads at kilobytes, and
   renders only a page of cards/rows at a time - comfortable at 10k+ parts.
 
+Search itself is index-backed so it does not sequentially scan as the catalog
+grows:
+
+- A stored generated `tsvector` column (`parts.search_doc`) over each part's own
+  text, with a **GIN** index, powers the full-text branch
+  (`websearch_to_tsquery`) - stemming and multi-word phrases.
+- **`pg_trgm`** trigram GIN indexes on `parts.part_number`, `parts.name`,
+  `suppliers.name` and `boiler_models.name` power substring (`ilike '%fragment%'`)
+  search, so a partial term like `ven` matches `Air Vent` without a scan.
+- `search_parts` gathers matching ids from the base tables as a `UNION` (so each
+  branch can use its index) and joins back to `parts_with_details` for the
+  returned shape; supplier and model names are matched via their own tables since
+  a generated column can only see same-row data.
+
 If you change `schema.sql` (e.g. the RPC), re-run it in the Supabase SQL editor so
 PostgREST picks up the new definition.
 

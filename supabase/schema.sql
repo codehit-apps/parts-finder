@@ -15,6 +15,14 @@
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
+-- Extensions
+-- ----------------------------------------------------------------------------
+
+-- pg_trgm powers fast substring (ilike '%fragment%') search via GIN trigram
+-- indexes -- e.g. 'ven' -> 'Air Vent' without a sequential scan at scale.
+create extension if not exists pg_trgm;
+
+-- ----------------------------------------------------------------------------
 -- Tables
 -- ----------------------------------------------------------------------------
 
@@ -55,13 +63,66 @@ create table if not exists part_models (
 );
 
 -- ----------------------------------------------------------------------------
--- Indexes (foreign keys + common filters)
+-- Full-text search column
+--
+-- A STORED generated tsvector over a part's own text (kept in sync automatically
+-- by Postgres -- no trigger needed). Indexed with GIN below so full-text queries
+-- never scan the table. Generated columns can only reference same-row columns, so
+-- supplier and model names are NOT here; search_parts matches those by joining the
+-- (small) suppliers / boiler_models tables instead. to_tsvector must use the
+-- 2-arg 'english' form -- it is IMMUTABLE, which a generated column requires.
+-- ----------------------------------------------------------------------------
+
+-- array_to_string is only STABLE (its volatility is the worst case across all
+-- element types), so it cannot be used directly in a generated column. For text[]
+-- the result is fully deterministic, so wrap it in an IMMUTABLE function we can
+-- use below. (This keeps english stemming on keywords, vs array_to_tsvector which
+-- would store them as raw un-stemmed lexemes.)
+create or replace function text_array_to_string(arr text[], sep text)
+returns text
+language sql
+immutable
+set search_path = public
+as $$
+  select array_to_string(arr, sep);
+$$;
+
+alter table parts
+  add column if not exists search_doc tsvector
+  generated always as (
+    to_tsvector(
+      'english',
+      coalesce(part_number, '') || ' ' ||
+      coalesce(name, '')        || ' ' ||
+      coalesce(category, '')    || ' ' ||
+      coalesce(description, '') || ' ' ||
+      coalesce(text_array_to_string(keywords, ' '), '')
+    )
+  ) stored;
+
+-- ----------------------------------------------------------------------------
+-- Indexes (foreign keys + common filters + search)
 -- ----------------------------------------------------------------------------
 
 create index if not exists parts_category_idx     on parts (category);
 create index if not exists parts_supplier_id_idx   on parts (supplier_id);
 create index if not exists boiler_models_supplier_idx on boiler_models (supplier_id);
 create index if not exists part_models_model_id_idx on part_models (model_id);
+
+-- Full-text (websearch_to_tsquery) over each part's own text.
+create index if not exists parts_search_doc_idx on parts using gin (search_doc);
+
+-- Trigram indexes for substring (ilike '%fragment%') search. part_number and
+-- name are matched directly; supplier and model names are matched through their
+-- own tables, so they get trigram indexes too.
+create index if not exists parts_part_number_trgm_idx
+  on parts using gin (part_number gin_trgm_ops);
+create index if not exists parts_name_trgm_idx
+  on parts using gin (name gin_trgm_ops);
+create index if not exists suppliers_name_trgm_idx
+  on suppliers using gin (name gin_trgm_ops);
+create index if not exists boiler_models_name_trgm_idx
+  on boiler_models using gin (name gin_trgm_ops);
 
 -- ----------------------------------------------------------------------------
 -- updated_at maintenance
@@ -199,6 +260,11 @@ create policy "admin write" on part_models   for all to authenticated using (is_
 -- in name order -- still paginated, so it never downloads everything at once.
 -- ----------------------------------------------------------------------------
 
+-- Drop any stale single-argument signature from earlier iterations. A
+-- create-or-replace only updates the matching signature, so an old
+-- search_parts(text) would linger and make PostgREST calls ambiguous (PGRST203).
+drop function if exists search_parts(text);
+
 create or replace function search_parts(query text, filter_category text default null)
 returns setof parts_with_details
 language sql
@@ -206,32 +272,54 @@ stable
 security invoker
 set search_path = public
 as $$
-  select *
-  from parts_with_details p
-  where (filter_category is null or filter_category = '' or p.category = filter_category)
-    and (
-      query is null
-      or query = ''
-      or p.part_number ilike '%' || query || '%'
-      or to_tsvector(
-           'english',
-           coalesce(p.name, '')        || ' ' ||
-           coalesce(p.category, '')    || ' ' ||
-           coalesce(p.supplier, '')    || ' ' ||
-           coalesce(p.description, '') || ' ' ||
-           coalesce(array_to_string(p.keywords, ' '), '') || ' ' ||
-           coalesce(array_to_string(p.models, ' '), '')
-         ) @@ websearch_to_tsquery('english', query)
-    )
+  -- Collect matching part ids from the BASE tables so every predicate can use an
+  -- index, then join back to the flattened view for the returned shape. Writing
+  -- the OR-branches as a UNION (rather than one big OR over the view) is what lets
+  -- the planner use the GIN / trigram indexes instead of a sequential scan.
+  with matches as (
+    -- Same-row matches on parts: substring on part_number/name (trigram indexes)
+    -- and full-text on the stored search_doc (GIN index). An empty/null query
+    -- falls through here and returns every (optionally category-filtered) part.
+    select p.id
+    from parts p
+    where (filter_category is null or filter_category = '' or p.category = filter_category)
+      and (
+        query is null
+        or query = ''
+        or p.part_number ilike '%' || query || '%'
+        or p.name ilike '%' || query || '%'
+        or p.search_doc @@ websearch_to_tsquery('english', query)
+      )
+    union
+    -- Supplier-name matches (trigram index on suppliers.name).
+    select p.id
+    from parts p
+    join suppliers s on s.id = p.supplier_id
+    where query is not null and query <> ''
+      and (filter_category is null or filter_category = '' or p.category = filter_category)
+      and s.name ilike '%' || query || '%'
+    union
+    -- Model-name matches (trigram index on boiler_models.name).
+    select pm.part_id as id
+    from part_models pm
+    join boiler_models bm on bm.id = pm.model_id
+    join parts p on p.id = pm.part_id
+    where query is not null and query <> ''
+      and (filter_category is null or filter_category = '' or p.category = filter_category)
+      and bm.name ilike '%' || query || '%'
+  )
+  select pwd.*
+  from parts_with_details pwd
+  join matches m on m.id = pwd.id
   order by
     case
       when query is null or query = '' then 0
-      when lower(p.part_number) = lower(query) then 3       -- exact part number
-      when p.part_number ilike query || '%' then 2          -- part number prefix
-      when p.part_number ilike '%' || query || '%' then 1   -- part number fragment
+      when lower(pwd.part_number) = lower(query) then 3       -- exact part number
+      when pwd.part_number ilike query || '%' then 2          -- part number prefix
+      when pwd.part_number ilike '%' || query || '%' then 1   -- part number fragment
       else 0
     end desc,
-    p.name asc;
+    pwd.name asc;
 $$;
 
 -- ----------------------------------------------------------------------------

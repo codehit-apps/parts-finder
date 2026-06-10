@@ -13,6 +13,7 @@
 import { supabase, isConfigured } from "./supabase-client.js";
 
 var PAGE_SIZE = 12;
+var MIN_QUERY = 3; // ignore search terms shorter than this (avoids noisy 1-2 char hits)
 
 var state = { query: "", category: "ALL", page: 0 };
 var lastCount = 0;
@@ -145,23 +146,28 @@ function goToPage(page) {
 // Search (server-side, one page per request)
 // ---------------------------------------------------------------------------
 
-function isBrowsingNothing() {
-  return state.query.trim() === "" && state.category === "ALL";
-}
-
 async function runSearch() {
-  if (isBrowsingNothing()) {
+  var rawQuery = state.query.trim();
+  // A term shorter than MIN_QUERY is treated as no query: we still browse by
+  // category if one is picked, but never fire a 1-2 char search.
+  var query = rawQuery.length >= MIN_QUERY ? rawQuery : "";
+
+  if (query === "" && state.category === "ALL") {
     lastCount = 0;
     countEl.innerHTML = "";
     pagerEl.innerHTML = "";
-    showState("Search the catalog",
-      "Enter a part number, name, or symptom above to begin " +
-      '(try <span class="mono">0020132683</span>, <span class="mono">pump</span>, ' +
-      'or <span class="mono">no hot water</span>), or pick a category.');
+    if (rawQuery !== "") {
+      showState("Keep typing",
+        "Enter at least " + MIN_QUERY + " characters to search, or pick a category.");
+    } else {
+      showState("Search the catalog",
+        "Enter a part number, name, or symptom above to begin " +
+        '(try <span class="mono">0020132683</span>, <span class="mono">pump</span>, ' +
+        'or <span class="mono">no hot water</span>), or pick a category.');
+    }
     return;
   }
 
-  var query = state.query.trim();
   var from = state.page * PAGE_SIZE;
   var to = from + PAGE_SIZE - 1;
 
