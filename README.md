@@ -27,11 +27,6 @@ assets/
 supabase/
   schema.sql            Tables, view, RLS policies, indexes, optional search RPC
   seed.sql              Starter catalog (the 16 demo parts)
-
-# Reference only (not wired into the live app):
-parts-finder-demo.html  Original self-contained demo
-parts.json              Original demo data
-api/parts.php           Original PHP endpoint (superseded by Supabase)
 ```
 
 ## Data model (normalized)

@@ -5,7 +5,7 @@
 -- Re-runnable: every insert uses ON CONFLICT DO NOTHING and looks rows up by
 -- name / part number, so running it twice does not create duplicates.
 --
--- Data mirrors the original demo (parts.json): 16 real-world boiler spares.
+-- Data: 16 real-world boiler spares from the original demo catalog.
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
