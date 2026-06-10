@@ -233,12 +233,12 @@ function renderPartsTable() {
 
     return (
       "<tr>" +
-        '<td class="cell-pn">' + escapeHtml(row.part_number) + "</td>" +
-        "<td><b>" + escapeHtml(row.name) + "</b><br>" + modelPills + "</td>" +
-        "<td>" + escapeHtml(row.category) + "</td>" +
-        "<td>" + escapeHtml(row.supplier || "") + "</td>" +
-        "<td>" + (row.price != null ? "USD " + Number(row.price).toFixed(2) : "&mdash;") + "</td>" +
-        "<td>" + escapeHtml(row.stock) + "<br>" + warranty + "</td>" +
+        '<td class="cell-pn" data-label="Part No.">' + escapeHtml(row.part_number) + "</td>" +
+        '<td data-label="Name / Models"><b>' + escapeHtml(row.name) + "</b><br>" + modelPills + "</td>" +
+        '<td data-label="Category">' + escapeHtml(row.category) + "</td>" +
+        '<td data-label="Supplier">' + escapeHtml(row.supplier || "") + "</td>" +
+        '<td data-label="Price">' + (row.price != null ? "USD " + Number(row.price).toFixed(2) : "&mdash;") + "</td>" +
+        '<td data-label="Stock">' + escapeHtml(row.stock) + "<br>" + warranty + "</td>" +
         '<td class="cell-actions">' +
           '<button type="button" class="btn btn-small" data-edit="' + row.id + '">Edit</button>' +
           '<button type="button" class="btn btn-small btn-danger" data-delete="' + row.id + '">Delete</button>' +
