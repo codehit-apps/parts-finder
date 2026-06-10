@@ -1,25 +1,30 @@
 // ============================================================================
-// Parts Finder - admin panel.
+// Parts Finder - admin panel (server-side paginated CRUD).
 //
-// Auth-gated CRUD over the normalized Supabase schema:
 //   - login / logout via Supabase Auth (email + password)
-//   - parts list with text + category filtering
-//   - create / edit parts (incl. supplier, compatible models, keywords)
+//   - parts list paginated server-side via the search_parts RPC (one page per
+//     request, .range() + { count: 'exact' }); text + category filters re-query
+//   - create / edit parts (supplier, compatible models, keywords)
 //   - delete parts (with confirmation)
 //   - manage the supplier and boiler_model lookup tables
 //
-// Writes are allowed only for authenticated users (enforced by RLS, not just by
-// hiding the UI). All reads here use the base tables so the form has the raw
-// foreign keys; the public finder reads the flattened parts_with_details view.
+// Lookups (suppliers, boiler_models, categories) are small and loaded once for
+// the form dropdowns + management panels. The parts table reads from the
+// parts_with_details view (via the RPC), which already carries the supplier name
+// and model-name array, so no client-side joins are needed for display.
+//
+// Writes require an authenticated session (enforced by RLS, not just the UI).
 // ============================================================================
 
 import { supabase, isConfigured } from "./supabase-client.js";
 
+var el = function (id) { return document.getElementById(id); };
+
+var PAGE_SIZE = 20;
+
 // ---------------------------------------------------------------------------
 // Element references
 // ---------------------------------------------------------------------------
-var el = function (id) { return document.getElementById(id); };
-
 var loginView = el("login-view");
 var appView = el("app-view");
 var headerActions = el("header-actions");
@@ -33,6 +38,7 @@ var partsTableWrap = el("parts-table-wrap");
 var partsCountEl = el("parts-count");
 var partsSearchEl = el("parts-search");
 var partsCategoryFilter = el("parts-category-filter");
+var partsPagerEl = el("parts-pager");
 
 var partModal = el("part-modal");
 var partForm = el("part-form");
@@ -42,16 +48,17 @@ var partModalTitle = el("part-modal-title");
 var confirmModal = el("confirm-modal");
 
 // ---------------------------------------------------------------------------
-// In-memory cache of catalog data
+// State
 // ---------------------------------------------------------------------------
 var data = {
-  parts: [],          // raw rows from `parts`
-  suppliers: [],      // { id, name }
-  models: [],         // { id, name, supplier_id }
-  partModels: []      // { part_id, model_id }
+  suppliers: [],    // { id, name }
+  models: [],       // { id, name, supplier_id }
+  categories: []    // [ "Hydraulics", ... ]
 };
 
-var filter = { query: "", category: "ALL" };
+var pageState = { query: "", category: "ALL", page: 0 };
+var partsCount = 0;
+var currentRows = [];   // parts_with_details rows for the current page
 
 function escapeHtml(text) {
   return String(text == null ? "" : text)
@@ -62,13 +69,6 @@ function escapeHtml(text) {
 function supplierName(id) {
   var match = data.suppliers.find(function (s) { return s.id === id; });
   return match ? match.name : "";
-}
-
-function modelsForPart(partId) {
-  var ids = data.partModels
-    .filter(function (pm) { return pm.part_id === partId; })
-    .map(function (pm) { return pm.model_id; });
-  return data.models.filter(function (m) { return ids.indexOf(m.id) !== -1; });
 }
 
 // ===========================================================================
@@ -104,7 +104,6 @@ loginForm.addEventListener("submit", async function (event) {
 
   if (result.error) {
     loginMsg.textContent = result.error.message;
-    return;
   }
   // onAuthStateChange handles the view swap + data load.
 });
@@ -117,14 +116,11 @@ el("sign-out-btn").addEventListener("click", async function () {
 // Data loading
 // ===========================================================================
 
-async function loadAll() {
-  partsTableWrap.innerHTML = '<div class="spinner-inline">Loading...</div>';
-
+async function loadLookups() {
   var responses = await Promise.all([
-    supabase.from("parts").select("*").order("name", { ascending: true }),
     supabase.from("suppliers").select("*").order("name", { ascending: true }),
     supabase.from("boiler_models").select("*").order("name", { ascending: true }),
-    supabase.from("part_models").select("*")
+    supabase.from("part_categories").select("category, n").order("category", { ascending: true })
   ]);
 
   var firstError = responses.find(function (r) { return r.error; });
@@ -136,95 +132,116 @@ async function loadAll() {
     return;
   }
 
-  data.parts = responses[0].data || [];
-  data.suppliers = responses[1].data || [];
-  data.models = responses[2].data || [];
-  data.partModels = responses[3].data || [];
+  data.suppliers = responses[0].data || [];
+  data.models = responses[1].data || [];
+  data.categories = (responses[2].data || []).map(function (row) { return row.category; });
 
-  renderCategoryControls();
+  renderCategoryFilter();
   renderSupplierControls();
   renderModelControls();
-  renderPartsTable();
   renderLookups();
 }
 
-// ===========================================================================
-// Parts table
-// ===========================================================================
+async function loadPartsPage() {
+  partsTableWrap.innerHTML = '<div class="spinner-inline">Loading...</div>';
 
-function distinctCategories() {
-  var categories = [];
-  data.parts.forEach(function (part) {
-    if (part.category && categories.indexOf(part.category) === -1) categories.push(part.category);
-  });
-  categories.sort();
-  return categories;
+  var from = pageState.page * PAGE_SIZE;
+  var to = from + PAGE_SIZE - 1;
+
+  var response = await supabase
+    .rpc("search_parts",
+      {
+        query: pageState.query.trim(),
+        filter_category: pageState.category === "ALL" ? null : pageState.category
+      },
+      { count: "exact" })
+    .range(from, to);
+
+  if (response.error) {
+    console.error(response.error);
+    partsPagerEl.innerHTML = "";
+    partsTableWrap.innerHTML =
+      '<div class="state-panel"><div class="big">Could not load parts</div><p>' +
+      escapeHtml(response.error.message) + "</p></div>";
+    return;
+  }
+
+  partsCount = response.count || 0;
+  currentRows = response.data || [];
+
+  // If a delete emptied the current page, step back one and reload.
+  if (currentRows.length === 0 && partsCount > 0 && pageState.page > 0) {
+    pageState.page = Math.max(0, Math.ceil(partsCount / PAGE_SIZE) - 1);
+    return loadPartsPage();
+  }
+
+  renderPartsTable();
 }
 
-function renderCategoryControls() {
-  var categories = distinctCategories();
+// Reload lookups (counts/category list may have changed) plus the current page.
+async function refresh() {
+  await loadLookups();
+  await loadPartsPage();
+}
 
+// ===========================================================================
+// Parts table + pager
+// ===========================================================================
+
+function renderCategoryFilter() {
   partsCategoryFilter.innerHTML =
     '<option value="ALL">All categories</option>' +
-    categories.map(function (c) {
+    data.categories.map(function (c) {
       return '<option value="' + escapeHtml(c) + '">' + escapeHtml(c) + "</option>";
     }).join("");
-  partsCategoryFilter.value = filter.category;
+  partsCategoryFilter.value = pageState.category;
 
   // Datalist suggestions for the part form's category input.
-  el("category-options").innerHTML = categories.map(function (c) {
+  el("category-options").innerHTML = data.categories.map(function (c) {
     return '<option value="' + escapeHtml(c) + '">';
   }).join("");
 }
 
-function filteredParts() {
-  var query = filter.query.trim().toLowerCase();
-  return data.parts.filter(function (part) {
-    if (filter.category !== "ALL" && part.category !== filter.category) return false;
-    if (!query) return true;
-    var haystack = [
-      part.part_number, part.name, part.category, supplierName(part.supplier_id),
-      part.description, (part.keywords || []).join(" "), part.supersedes
-    ].join(" ").toLowerCase();
-    return haystack.indexOf(query) !== -1;
-  });
+function isFiltered() {
+  return pageState.query.trim() !== "" || pageState.category !== "ALL";
 }
 
 function renderPartsTable() {
-  var rows = filteredParts();
-  partsCountEl.innerHTML = "<strong>" + rows.length + "</strong> / " + data.parts.length + " PARTS";
+  partsCountEl.innerHTML = "<strong>" + partsCount + "</strong> PART" +
+    (partsCount === 1 ? "" : "S") + (isFiltered() ? " (filtered)" : "");
 
-  if (rows.length === 0) {
+  if (partsCount === 0) {
+    partsPagerEl.innerHTML = "";
     partsTableWrap.innerHTML =
       '<div class="state-panel"><div class="big">No parts</div><p>' +
-      (data.parts.length === 0
-        ? "The catalog is empty. Add your first part, or run seed.sql."
-        : "No parts match the current filter.") + "</p></div>";
+      (isFiltered()
+        ? "No parts match the current filter."
+        : "The catalog is empty. Add your first part, or run seed.sql.") + "</p></div>";
     return;
   }
 
-  var body = rows.map(function (part) {
-    var models = modelsForPart(part.id);
-    var modelPills = models.slice(0, 3).map(function (m) {
-      return '<span class="tag-pill">' + escapeHtml(m.name) + "</span>";
+  var body = currentRows.map(function (row) {
+    var models = row.models || [];
+    var modelPills = models.slice(0, 3).map(function (name) {
+      return '<span class="tag-pill">' + escapeHtml(name) + "</span>";
     }).join("");
     if (models.length > 3) modelPills += '<span class="tag-pill">+' + (models.length - 3) + "</span>";
 
-    var warranty = part.replacement
+    var warranty = row.replacement
       ? '<span class="row-warranty">Warranty</span>'
       : '<span class="row-sale">Sale</span>';
 
     return (
       "<tr>" +
-        '<td class="cell-pn">' + escapeHtml(part.part_number) + "</td>" +
-        "<td><b>" + escapeHtml(part.name) + "</b><br>" + modelPills + "</td>" +
-        "<td>" + escapeHtml(part.category) + "</td>" +
-        "<td>" + escapeHtml(supplierName(part.supplier_id)) + "</td>" +
-        "<td>" + (part.price != null ? "USD " + Number(part.price).toFixed(2) : "&mdash;") + "</td>" +
-        "<td>" + escapeHtml(part.stock) + "<br>" + warranty + "</td>" +
+        '<td class="cell-pn">' + escapeHtml(row.part_number) + "</td>" +
+        "<td><b>" + escapeHtml(row.name) + "</b><br>" + modelPills + "</td>" +
+        "<td>" + escapeHtml(row.category) + "</td>" +
+        "<td>" + escapeHtml(row.supplier || "") + "</td>" +
+        "<td>" + (row.price != null ? "USD " + Number(row.price).toFixed(2) : "&mdash;") + "</td>" +
+        "<td>" + escapeHtml(row.stock) + "<br>" + warranty + "</td>" +
         '<td class="cell-actions">' +
-          '<button type="button" class="btn btn-small" data-edit="' + part.id + '">Edit</button>' +
-          '<button type="button" class="btn btn-small btn-danger" data-delete="' + part.id + '">Delete</button>' +
+          '<button type="button" class="btn btn-small" data-edit="' + row.id + '">Edit</button>' +
+          '<button type="button" class="btn btn-small btn-danger" data-delete="' + row.id + '">Delete</button>' +
         "</td>" +
       "</tr>"
     );
@@ -235,16 +252,44 @@ function renderPartsTable() {
       "<th>Part No.</th><th>Name / Models</th><th>Category</th><th>Supplier</th>" +
       "<th>Price</th><th>Stock</th><th></th>" +
     "</tr></thead><tbody>" + body + "</tbody></table>";
+
+  renderPartsPager();
 }
 
+function renderPartsPager() {
+  var totalPages = Math.max(1, Math.ceil(partsCount / PAGE_SIZE));
+  if (partsCount === 0) { partsPagerEl.innerHTML = ""; return; }
+  var current = pageState.page + 1;
+  partsPagerEl.innerHTML =
+    '<button type="button" class="pager-btn" id="parts-prev"' + (pageState.page <= 0 ? " disabled" : "") + ">Prev</button>" +
+    '<span class="pager-info">Page ' + current + " of " + totalPages + "</span>" +
+    '<button type="button" class="pager-btn" id="parts-next"' + (current >= totalPages ? " disabled" : "") + ">Next</button>";
+
+  var prev = el("parts-prev");
+  var next = el("parts-next");
+  if (prev) prev.addEventListener("click", function () { gotoPartsPage(pageState.page - 1); });
+  if (next) next.addEventListener("click", function () { gotoPartsPage(pageState.page + 1); });
+}
+
+function gotoPartsPage(page) {
+  pageState.page = page;
+  loadPartsPage();
+}
+
+var partsSearchTimer = null;
 partsSearchEl.addEventListener("input", function () {
-  filter.query = partsSearchEl.value;
-  renderPartsTable();
+  clearTimeout(partsSearchTimer);
+  partsSearchTimer = setTimeout(function () {
+    pageState.query = partsSearchEl.value;
+    pageState.page = 0;
+    loadPartsPage();
+  }, 200);
 });
 
 partsCategoryFilter.addEventListener("change", function () {
-  filter.category = partsCategoryFilter.value;
-  renderPartsTable();
+  pageState.category = partsCategoryFilter.value;
+  pageState.page = 0;
+  loadPartsPage();
 });
 
 partsTableWrap.addEventListener("click", function (event) {
@@ -285,39 +330,52 @@ function renderModelControls() {
   el("part-models").innerHTML = html;
 }
 
-function openPartForm(partId) {
+function clearModelSelection() {
+  Array.prototype.forEach.call(el("part-models").options, function (o) { o.selected = false; });
+}
+
+async function openPartForm(partId) {
   partForm.reset();
   partFormMsg.textContent = "";
   partFormMsg.className = "form-msg";
   el("part-id").value = "";
-
-  // Default model selection cleared.
-  Array.prototype.forEach.call(el("part-models").options, function (o) { o.selected = false; });
+  clearModelSelection();
 
   if (partId == null) {
     partModalTitle.textContent = "New Part";
     el("part-stock").value = "in";
-  } else {
-    var part = data.parts.find(function (p) { return p.id === partId; });
-    if (!part) return;
-    partModalTitle.textContent = "Edit Part";
-    el("part-id").value = part.id;
-    el("part-number").value = part.part_number || "";
-    el("part-name").value = part.name || "";
-    el("part-category").value = part.category || "";
-    el("part-supplier").value = part.supplier_id == null ? "" : String(part.supplier_id);
-    el("part-price").value = part.price == null ? "" : part.price;
-    el("part-stock").value = part.stock || "in";
-    el("part-supersedes").value = part.supersedes || "";
-    el("part-replacement").checked = !!part.replacement;
-    el("part-description").value = part.description || "";
-    el("part-keywords").value = (part.keywords || []).join(", ");
-
-    var selectedIds = modelsForPart(part.id).map(function (m) { return String(m.id); });
-    Array.prototype.forEach.call(el("part-models").options, function (o) {
-      o.selected = selectedIds.indexOf(o.value) !== -1;
-    });
+    openModal(partModal);
+    el("part-number").focus();
+    return;
   }
+
+  // Edit: fetch the base part row (has supplier_id and all fields) plus its model ids.
+  partModalTitle.textContent = "Edit Part";
+  var partResponse = await supabase.from("parts").select("*").eq("id", partId).single();
+  if (partResponse.error || !partResponse.data) {
+    console.error(partResponse.error);
+    alert("Could not load that part: " + (partResponse.error ? partResponse.error.message : "not found"));
+    return;
+  }
+  var part = partResponse.data;
+
+  el("part-id").value = part.id;
+  el("part-number").value = part.part_number || "";
+  el("part-name").value = part.name || "";
+  el("part-category").value = part.category || "";
+  el("part-supplier").value = part.supplier_id == null ? "" : String(part.supplier_id);
+  el("part-price").value = part.price == null ? "" : part.price;
+  el("part-stock").value = part.stock || "in";
+  el("part-supersedes").value = part.supersedes || "";
+  el("part-replacement").checked = !!part.replacement;
+  el("part-description").value = part.description || "";
+  el("part-keywords").value = (part.keywords || []).join(", ");
+
+  var modelsResponse = await supabase.from("part_models").select("model_id").eq("part_id", partId);
+  var selectedIds = (modelsResponse.data || []).map(function (r) { return String(r.model_id); });
+  Array.prototype.forEach.call(el("part-models").options, function (o) {
+    o.selected = selectedIds.indexOf(o.value) !== -1;
+  });
 
   openModal(partModal);
   el("part-number").focus();
@@ -384,7 +442,7 @@ partForm.addEventListener("submit", async function (event) {
 
   el("part-save-btn").disabled = false;
   closeModal(partModal);
-  await loadAll();
+  await refresh();
 });
 
 function failSave(error) {
@@ -401,7 +459,7 @@ function failSave(error) {
 var pendingConfirm = null;
 
 function confirmDeletePart(partId) {
-  var part = data.parts.find(function (p) { return p.id === partId; });
+  var part = currentRows.find(function (p) { return p.id === partId; });
   if (!part) return;
   el("confirm-title").textContent = "Delete Part";
   el("confirm-text").innerHTML =
@@ -411,7 +469,7 @@ function confirmDeletePart(partId) {
   pendingConfirm = async function () {
     var del = await supabase.from("parts").delete().eq("id", partId);
     if (del.error) throw del.error;
-    await loadAll();
+    await refresh();
   };
   openModal(confirmModal);
 }
@@ -438,11 +496,9 @@ el("confirm-ok-btn").addEventListener("click", async function () {
 
 function renderLookups() {
   var supplierItems = data.suppliers.map(function (s) {
-    var count = data.parts.filter(function (p) { return p.supplier_id === s.id; }).length;
     return (
       "<li>" +
-        '<span><span class="lk-name">' + escapeHtml(s.name) + "</span> " +
-          '<span class="lk-sub">' + count + " parts</span></span>" +
+        '<span class="lk-name">' + escapeHtml(s.name) + "</span>" +
         "<span>" +
           '<button type="button" class="btn btn-small" data-rename-supplier="' + s.id + '">Rename</button> ' +
           '<button type="button" class="btn btn-small btn-danger" data-delete-supplier="' + s.id + '">Delete</button>' +
@@ -476,7 +532,7 @@ el("supplier-add-form").addEventListener("submit", async function (event) {
   var result = await supabase.from("suppliers").insert({ name: name });
   if (result.error) { alert(result.error.message); return; }
   el("supplier-add-name").value = "";
-  await loadAll();
+  await refresh();
 });
 
 el("model-add-form").addEventListener("submit", async function (event) {
@@ -490,22 +546,19 @@ el("model-add-form").addEventListener("submit", async function (event) {
   });
   if (result.error) { alert(result.error.message); return; }
   el("model-add-name").value = "";
-  await loadAll();
+  await refresh();
 });
 
-// Rename / delete via event delegation on the two lists.
-document.getElementById("suppliers-list").addEventListener("click", async function (event) {
+el("suppliers-list").addEventListener("click", async function (event) {
   var renameBtn = event.target.closest("[data-rename-supplier]");
-  if (renameBtn) return renameRow("suppliers", Number(renameBtn.getAttribute("data-rename-supplier")),
-    data.suppliers);
+  if (renameBtn) return renameRow("suppliers", Number(renameBtn.getAttribute("data-rename-supplier")), data.suppliers);
   var deleteBtn = event.target.closest("[data-delete-supplier]");
   if (deleteBtn) return deleteSupplier(Number(deleteBtn.getAttribute("data-delete-supplier")));
 });
 
-document.getElementById("models-list").addEventListener("click", async function (event) {
+el("models-list").addEventListener("click", async function (event) {
   var renameBtn = event.target.closest("[data-rename-model]");
-  if (renameBtn) return renameRow("boiler_models", Number(renameBtn.getAttribute("data-rename-model")),
-    data.models);
+  if (renameBtn) return renameRow("boiler_models", Number(renameBtn.getAttribute("data-rename-model")), data.models);
   var deleteBtn = event.target.closest("[data-delete-model]");
   if (deleteBtn) return deleteModel(Number(deleteBtn.getAttribute("data-delete-model")));
 });
@@ -519,33 +572,33 @@ async function renameRow(table, id, collection) {
   if (!next || next === current.name) return;
   var result = await supabase.from(table).update({ name: next }).eq("id", id);
   if (result.error) { alert(result.error.message); return; }
-  await loadAll();
+  await refresh();
 }
 
 async function deleteSupplier(id) {
   var supplier = data.suppliers.find(function (s) { return s.id === id; });
   if (!supplier) return;
-  var count = data.parts.filter(function (p) { return p.supplier_id === id; }).length;
-  var note = count > 0
-    ? " " + count + " part(s) will be left with no supplier."
-    : "";
+  var countResponse = await supabase
+    .from("parts").select("id", { count: "exact", head: true }).eq("supplier_id", id);
+  var count = countResponse.count || 0;
+  var note = count > 0 ? " " + count + " part(s) will be left with no supplier." : "";
   if (!window.confirm('Delete supplier "' + supplier.name + '"?' + note)) return;
   var result = await supabase.from("suppliers").delete().eq("id", id);
   if (result.error) { alert(result.error.message); return; }
-  await loadAll();
+  await refresh();
 }
 
 async function deleteModel(id) {
   var model = data.models.find(function (m) { return m.id === id; });
   if (!model) return;
-  var count = data.partModels.filter(function (pm) { return pm.model_id === id; }).length;
-  var note = count > 0
-    ? " It will be removed from " + count + " part(s)."
-    : "";
+  var countResponse = await supabase
+    .from("part_models").select("part_id", { count: "exact", head: true }).eq("model_id", id);
+  var count = countResponse.count || 0;
+  var note = count > 0 ? " It will be removed from " + count + " part(s)." : "";
   if (!window.confirm('Delete model "' + model.name + '"?' + note)) return;
   var result = await supabase.from("boiler_models").delete().eq("id", id);
   if (result.error) { alert(result.error.message); return; }
-  await loadAll();
+  await refresh();
 }
 
 // ===========================================================================
@@ -587,17 +640,36 @@ function showNotConfigured() {
     "</div></div>");
 }
 
+async function loadAppData() {
+  await loadLookups();
+  await loadPartsPage();
+}
+
+// A valid login is not enough -- the account must also be in the admins table
+// (is_admin RPC). Non-admins are signed out with a message. This mirrors the
+// RLS write policies, so the UI never shows controls the user can't actually use.
+async function onSignedIn(session) {
+  var adminCheck = await supabase.rpc("is_admin");
+  if (adminCheck.error || !adminCheck.data) {
+    await supabase.auth.signOut();
+    showLogin();
+    loginMsg.textContent = "This account is not authorized for admin access.";
+    return;
+  }
+  showApp(session);
+  await loadAppData();
+}
+
 async function boot() {
   if (!isConfigured) { showNotConfigured(); return; }
 
   var sessionResponse = await supabase.auth.getSession();
   var session = sessionResponse.data.session;
-  if (session) { showApp(session); await loadAll(); }
+  if (session) { await onSignedIn(session); }
   else { showLogin(); }
 
-  // React to login / logout from anywhere (including this tab's form).
   supabase.auth.onAuthStateChange(function (event, session) {
-    if (session) { showApp(session); loadAll(); }
+    if (session) { onSignedIn(session); }
     else { showLogin(); }
   });
 }

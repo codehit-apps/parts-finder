@@ -61,11 +61,25 @@ joins back into a `supplier` string + `models` array per part.
 
 1. **Authentication -> Providers -> Email**: keep enabled.
 2. **Authentication -> Sign In / Providers** (Auth settings): turn **OFF**
-   "Allow new users to sign up". This stops the public from self-registering -
-   the admin panel grants write access to any authenticated user, so sign-ups
-   must be closed.
+   "Allow new users to sign up". With the anon key public, an open signup lets
+   anyone register and reach `authenticated`; closing it is the front-door lock.
 3. **Authentication -> Users -> Add user**: create your staff login(s) with an
    email + password. This is what you log into `/admin/` with.
+4. **Authorize that login as an admin.** Writing is gated by the `admins`
+   allowlist (defense-in-depth: a self-registered user is NOT an admin even if
+   signups are left on). In the SQL editor run, for each admin:
+
+   ```sql
+   insert into admins (user_id, email)
+   select id, email from auth.users where email = 'you@company.com'
+   on conflict (user_id) do nothing;
+   ```
+
+   A logged-in user who is not in `admins` is signed out by the panel and cannot
+   write (RLS blocks it regardless).
+5. **Project Settings -> API -> Max rows**: set a cap (e.g. `1000`). This bounds
+   any single response so nobody can pull the whole table in one request by
+   crafting a huge range - protects egress and prevents bulk scraping.
 
 ### 3. Wire up the frontend
 
@@ -83,14 +97,15 @@ here - it bypasses Row Level Security.
 ### 4. Run locally
 
 The pages use `fetch`/modules, so they must be served over HTTP (not opened as
-`file://`):
+`file://`). Use the helper script:
 
 ```
-python3 -m http.server 8000
+bin/dev          # serves on http://localhost:8000
+bin/dev 4000     # or a custom port
 ```
 
-Then open http://localhost:8000/ (finder) and http://localhost:8000/admin/
-(admin).
+It prints the finder (`/`) and admin (`/admin/`) URLs. (`bin/dev` uses `python3`,
+falling back to `php` or `npx serve`.)
 
 ## Deploy to GitHub Pages
 
@@ -132,24 +147,63 @@ creates and manages it for you. (Avoid hand-committing a `CNAME`: GitHub will
 auto-assign whatever domain it contains and then fail HTTPS verification until
 DNS matches.)
 
-## Scaling the search
+## Search & pagination (scales to large catalogs)
 
-v1 fetches the whole catalog once and scores/searches it in the browser -
-instant, with highlighting, and fine up to a couple thousand parts. When the
-catalog grows larger, switch `loadCatalog()` in `assets/js/finder.js` to the
-server-side `search_parts(query)` RPC (already defined in `schema.sql`) and add
-pagination, so the browser no longer downloads the entire catalog.
+Both the public finder and the admin table are **search-first and paginated
+server-side**, so the browser never downloads the whole catalog:
+
+- The public finder fetches **nothing** on load (zero egress) - just the small
+  `part_categories` list for the chips. It shows a search prompt until the visitor
+  searches or picks a category.
+- Searching/paging calls the `search_parts(query, filter_category)` RPC with
+  `.range()` + `{ count: 'exact' }`, returning one page (12 on the finder, 20 in
+  admin) per request. Ranking (exact part number first, then name) is done in
+  Postgres; result highlighting is applied client-side on the returned page.
+- This avoids PostgREST's max-rows truncation, keeps payloads at kilobytes, and
+  renders only a page of cards/rows at a time - comfortable at 10k+ parts.
+
+If you change `schema.sql` (e.g. the RPC), re-run it in the Supabase SQL editor so
+PostgREST picks up the new definition.
 
 ## Security model
 
-- Public visitors use the anon key and can only **read** (RLS `public read`
-  policies + `select` grants).
-- Writes (insert/update/delete) require an authenticated session (RLS
-  `admin write` policies, `to authenticated`).
-- "Any authenticated user is an admin." This is safe because public sign-ups are
-  disabled and accounts are created manually.
+All code (including the anon key) is public, so security lives entirely in the
+database and project config -- never in the client. The two threats that matter
+for a public static site + Supabase are **data corruption** and **egress abuse**.
+
+### Preventing data corruption (unauthorized writes)
+
+Two independent locks; either alone stops it:
+
+1. **RLS allowlist.** Writes require `to authenticated` AND `is_admin()` -- i.e.
+   membership in the `admins` table. A self-registered user is authenticated but
+   not an admin, so they cannot write. The `admins` table has RLS with no
+   policies, so it is unreachable via the API (managed only from the SQL editor /
+   service role) -- an attacker cannot add themselves.
+2. **Signups disabled** in the dashboard, so the public cannot create accounts at
+   all.
+
+Reads are intentionally public (it's a public catalog). The `service_role` key
+(which bypasses RLS) is never shipped to the frontend.
+
+### Preventing egress draining
+
+- **Search-first + server pagination**: zero rows fetched on load; each request
+  returns one small page.
+- **Max rows cap** (dashboard, e.g. 1000): bounds *any* single response, so a
+  crafted `.range(0, 9999999)` still can't pull the whole table - this is the
+  key server-side guard, since a direct API caller ignores the frontend.
+- For a hard guarantee against a determined attacker looping requests, put
+  **Cloudflare (free)** in front for per-IP rate limiting + caching, or serve the
+  public catalog as a cached static JSON snapshot from the Pages CDN (Supabase
+  egress then ~0). On the free tier, exceeding limits pauses/throttles the project
+  rather than billing you; on Pro, set a spend cap.
+
+### Other
+
 - The `parts_with_details` view uses `security_invoker = on` so it honors the
-  base tables' RLS.
+  base tables' RLS; `is_admin()` is `security definer` only to read the allowlist
+  and return a boolean.
 
 ### SQL injection / browser console
 
@@ -160,13 +214,13 @@ from hiding the key. The database is structurally safe against injection:
   API, which binds every value as a parameter. Pasting `'; DROP TABLE parts; --`
   into a search field is treated as a literal string, not executable SQL.
 - A console attacker using the anon key can only `SELECT` the public catalog
-  (RLS `public read`); they cannot insert/update/delete (those policies are
-  `to authenticated`).
+  (RLS `public read`); they cannot insert/update/delete (those policies require
+  `is_admin()`).
 - The `service_role` key (which bypasses RLS) is never shipped to the frontend.
-- The only function taking free text, `search_parts(query text)`, receives it as
-  a bound parameter; `websearch_to_tsquery` parses it safely and the `ilike`
-  pattern is built as a string value, not SQL. Functions pin `search_path` to
-  block search_path hijacking.
+- The function taking free text, `search_parts(query, filter_category)`, receives
+  its arguments as bound parameters; `websearch_to_tsquery` parses them safely and
+  the `ilike` pattern is built as a string value, not SQL. Functions pin
+  `search_path` to block search_path hijacking.
 
 ## Follow-ups (out of scope for v1)
 

@@ -125,10 +125,40 @@ group by p.id, s.name;
 -- created manually (see README).
 -- ----------------------------------------------------------------------------
 
+-- Admin allowlist: ONLY users listed in `admins` may write. Defense-in-depth --
+-- even if public sign-ups are accidentally left enabled, a self-registered user
+-- is not in this table and cannot modify any data (the worst they get is the
+-- read access the public already has). Add an admin from the SQL editor (which
+-- bypasses RLS):
+--   insert into admins (user_id, email)
+--   select id, email from auth.users where email = 'you@company.com';
+create table if not exists admins (
+  user_id    uuid primary key references auth.users(id) on delete cascade,
+  email      text,
+  created_at timestamptz not null default now()
+);
+
+-- SECURITY DEFINER so it can read `admins` regardless of that table's RLS and
+-- return just a boolean. Used by every write policy and by the admin UI guard.
+create or replace function is_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (select 1 from admins where user_id = auth.uid());
+$$;
+
+grant execute on function is_admin() to anon, authenticated;
+
 alter table suppliers     enable row level security;
 alter table boiler_models enable row level security;
 alter table parts         enable row level security;
 alter table part_models   enable row level security;
+-- `admins` has RLS on with NO policies on purpose: it is unreachable through the
+-- anon/authenticated API and is managed only from the SQL editor / service role.
+alter table admins        enable row level security;
 
 -- Public read
 drop policy if exists "public read" on suppliers;
@@ -143,30 +173,33 @@ create policy "public read" on parts         for select using (true);
 drop policy if exists "public read" on part_models;
 create policy "public read" on part_models   for select using (true);
 
--- Authenticated write (insert / update / delete)
+-- Admin-only write (insert / update / delete). Requires both an authenticated
+-- session AND membership in the admins table (is_admin()).
 drop policy if exists "admin write" on suppliers;
-create policy "admin write" on suppliers     for all to authenticated using (true) with check (true);
+create policy "admin write" on suppliers     for all to authenticated using (is_admin()) with check (is_admin());
 
 drop policy if exists "admin write" on boiler_models;
-create policy "admin write" on boiler_models for all to authenticated using (true) with check (true);
+create policy "admin write" on boiler_models for all to authenticated using (is_admin()) with check (is_admin());
 
 drop policy if exists "admin write" on parts;
-create policy "admin write" on parts         for all to authenticated using (true) with check (true);
+create policy "admin write" on parts         for all to authenticated using (is_admin()) with check (is_admin());
 
 drop policy if exists "admin write" on part_models;
-create policy "admin write" on part_models   for all to authenticated using (true) with check (true);
+create policy "admin write" on part_models   for all to authenticated using (is_admin()) with check (is_admin());
 
 -- ----------------------------------------------------------------------------
--- OPTIONAL: server-side full-text search RPC.
+-- Server-side search RPC (used by BOTH the public finder and the admin table).
 --
--- Not used by the v1 frontend (which fetches the catalog once and scores results
--- client-side -- instant, with highlighting, fine up to a couple thousand parts).
--- When the catalog grows large, switch finder.js to:
---     supabase.rpc('search_parts', { query: '...' })
--- and add pagination. Kept here so the upgrade path is in place.
+-- Returns rows from parts_with_details, optionally filtered by category, ranked
+-- exact-part-number-first then by name. The frontend paginates the result with
+-- .range() + { count: 'exact' }, so only one page is ever transferred:
+--     supabase.rpc('search_parts', { query, filter_category }, { count: 'exact' })
+--             .range(from, to)
+-- An empty/null query returns the whole (optionally category-filtered) catalog
+-- in name order -- still paginated, so it never downloads everything at once.
 -- ----------------------------------------------------------------------------
 
-create or replace function search_parts(query text)
+create or replace function search_parts(query text, filter_category text default null)
 returns setof parts_with_details
 language sql
 stable
@@ -174,18 +207,42 @@ security invoker
 set search_path = public
 as $$
   select *
-  from parts_with_details
-  where query is null
-     or query = ''
-     or to_tsvector(
-          'english',
-          coalesce(part_number, '') || ' ' ||
-          coalesce(name, '')        || ' ' ||
-          coalesce(category, '')    || ' ' ||
-          coalesce(supplier, '')    || ' ' ||
-          coalesce(description, '') || ' ' ||
-          coalesce(array_to_string(keywords, ' '), '') || ' ' ||
-          coalesce(array_to_string(models, ' '), '')
-        ) @@ websearch_to_tsquery('english', query)
-     or part_number ilike '%' || query || '%';
+  from parts_with_details p
+  where (filter_category is null or filter_category = '' or p.category = filter_category)
+    and (
+      query is null
+      or query = ''
+      or p.part_number ilike '%' || query || '%'
+      or to_tsvector(
+           'english',
+           coalesce(p.name, '')        || ' ' ||
+           coalesce(p.category, '')    || ' ' ||
+           coalesce(p.supplier, '')    || ' ' ||
+           coalesce(p.description, '') || ' ' ||
+           coalesce(array_to_string(p.keywords, ' '), '') || ' ' ||
+           coalesce(array_to_string(p.models, ' '), '')
+         ) @@ websearch_to_tsquery('english', query)
+    )
+  order by
+    case
+      when query is null or query = '' then 0
+      when lower(p.part_number) = lower(query) then 3       -- exact part number
+      when p.part_number ilike query || '%' then 2          -- part number prefix
+      when p.part_number ilike '%' || query || '%' then 1   -- part number fragment
+      else 0
+    end desc,
+    p.name asc;
 $$;
+
+-- ----------------------------------------------------------------------------
+-- Tiny lookup view for the category chips / admin filter.
+-- A handful of rows (one per category) with a count -- negligible egress.
+-- security_invoker so anon reads through the base table's public-read policy.
+-- ----------------------------------------------------------------------------
+
+create or replace view part_categories
+with (security_invoker = on) as
+select category, count(*)::int as n
+from parts
+group by category
+order by category;

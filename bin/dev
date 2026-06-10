@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# ----------------------------------------------------------------------------
+# bin/dev - serve the Parts Finder locally over HTTP.
+#
+# The pages use fetch() + ES modules, so they must be served over HTTP, not
+# opened as file://. This serves the project root on a local port.
+#
+# Usage:
+#   bin/dev            # serve on port 8000
+#   bin/dev 4000       # serve on port 4000
+#   PORT=4000 bin/dev  # same, via env var
+# ----------------------------------------------------------------------------
+set -euo pipefail
+
+# Project root = parent of this script's directory.
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PORT="${1:-${PORT:-8000}}"
+
+cd "$ROOT"
+
+echo "Parts Finder - serving $ROOT"
+echo "  Finder: http://localhost:$PORT/"
+echo "  Admin:  http://localhost:$PORT/admin/"
+echo "Press Ctrl+C to stop."
+echo
+
+if command -v python3 >/dev/null 2>&1; then
+  exec python3 -m http.server "$PORT"
+elif command -v php >/dev/null 2>&1; then
+  exec php -S "localhost:$PORT"
+elif command -v npx >/dev/null 2>&1; then
+  exec npx --yes serve -l "$PORT" .
+else
+  echo "Error: need one of python3, php, or npx to serve the site." >&2
+  exit 1
+fi
