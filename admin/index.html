@@ -62,10 +62,27 @@
     <div class="admin-toolbar">
       <input type="text" id="parts-search" placeholder="Filter by number, name, keyword...">
       <select id="parts-category-filter"><option value="ALL">All categories</option></select>
+      <select id="parts-supplier-filter"><option value="ALL">All suppliers</option></select>
+      <select id="parts-model-filter"><option value="ALL">All models</option></select>
+      <select id="parts-stock-filter">
+        <option value="ALL">All stock</option>
+        <option value="in">In stock</option>
+        <option value="low">Low stock</option>
+        <option value="out">On order</option>
+      </select>
+      <select id="parts-replacement-filter">
+        <option value="ALL">Warranty &amp; sale</option>
+        <option value="true">Warranty only</option>
+        <option value="false">Sale only</option>
+      </select>
+      <button type="button" class="btn btn-ghost" id="parts-clear-filters">Clear</button>
       <span class="result-count" id="parts-count"></span>
     </div>
     <div id="parts-table-wrap">
-      <div class="spinner-inline">Loading...</div>
+      <div class="state-panel"><div class="big">Search the catalog</div>
+        <p>Filter above, or load the whole catalog. Nothing is fetched until you do.</p>
+        <button type="button" class="btn btn-primary" data-load-all>Load all parts</button>
+      </div>
     </div>
     <div id="parts-pager" class="pager"></div>
   </section>
@@ -74,8 +91,9 @@
   <section class="admin-section">
     <div class="admin-section-head">
       <h2>Suppliers &amp; Models</h2>
+      <button type="button" class="btn" id="toggle-lookups-btn">Manage</button>
     </div>
-    <div class="lookup-grid">
+    <div class="lookup-grid" id="lookup-grid" hidden>
       <div class="lookup-panel">
         <h3>Suppliers</h3>
         <form class="lookup-add" id="supplier-add-form">

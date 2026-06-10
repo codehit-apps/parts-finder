@@ -47,6 +47,10 @@ var partsTableWrap = el("parts-table-wrap");
 var partsCountEl = el("parts-count");
 var partsSearchEl = el("parts-search");
 var partsCategoryFilter = el("parts-category-filter");
+var partsSupplierFilter = el("parts-supplier-filter");
+var partsModelFilter = el("parts-model-filter");
+var partsStockFilter = el("parts-stock-filter");
+var partsReplacementFilter = el("parts-replacement-filter");
 var partsPagerEl = el("parts-pager");
 
 var partModal = el("part-modal");
@@ -65,7 +69,12 @@ var data = {
   categories: []    // [ "Hydraulics", ... ]
 };
 
-var pageState = { query: "", category: "ALL", page: 0 };
+var pageState = {
+  query: "", category: "ALL", supplier: "ALL", model: "ALL",
+  stock: "ALL", replacement: "ALL", page: 0
+};
+var loaded = false;         // parts table: nothing fetched until the user asks
+var lookupsLoaded = false;  // suppliers/models/categories: loaded lazily, once
 var partsCount = 0;
 var currentRows = [];   // parts_with_details rows for the current page
 
@@ -144,26 +153,33 @@ async function loadLookups() {
   data.suppliers = responses[0].data || [];
   data.models = responses[1].data || [];
   data.categories = (responses[2].data || []).map(function (row) { return row.category; });
+  lookupsLoaded = true;
 
-  renderCategoryFilter();
+  renderPartsFilters();
   renderSupplierControls();
   renderModelControls();
   renderLookups();
 }
 
+// Load the lookup lists at most once, only when something actually needs them
+// (parts query, part form, or the Suppliers & Models panel) -- so a bare page
+// visit fetches nothing.
+async function ensureLookups() {
+  if (!lookupsLoaded) await loadLookups();
+}
+
 async function loadPartsPage() {
+  loaded = true;
   partsTableWrap.innerHTML = '<div class="spinner-inline">Loading...</div>';
+
+  // Populate the filter dropdowns (suppliers/models/categories) on first load.
+  await ensureLookups();
 
   var from = pageState.page * PAGE_SIZE;
   var to = from + PAGE_SIZE - 1;
 
   var response = await supabase
-    .rpc("search_parts",
-      {
-        query: effectiveQuery(),
-        filter_category: pageState.category === "ALL" ? null : pageState.category
-      },
-      { count: "exact" })
+    .rpc("search_parts", filterParams(), { count: "exact" })
     .range(from, to);
 
   if (response.error) {
@@ -187,23 +203,49 @@ async function loadPartsPage() {
   renderPartsTable();
 }
 
-// Reload lookups (counts/category list may have changed) plus the current page.
+// Reload lookups (counts/category list may have changed). Only reload the parts
+// page if the table has actually been loaded -- managing lookups should not fire
+// a parts query on a user who is still on the search-first prompt.
 async function refresh() {
   await loadLookups();
-  await loadPartsPage();
+  if (loaded) await loadPartsPage();
 }
 
 // ===========================================================================
 // Parts table + pager
 // ===========================================================================
 
-function renderCategoryFilter() {
+// Populate the toolbar filter dropdowns from the loaded lookups and restore the
+// current selections. A selected supplier/model that was since deleted falls back
+// to "ALL" so the state never points at a missing option.
+function renderPartsFilters() {
   partsCategoryFilter.innerHTML =
     '<option value="ALL">All categories</option>' +
     data.categories.map(function (c) {
       return '<option value="' + escapeHtml(c) + '">' + escapeHtml(c) + "</option>";
     }).join("");
   partsCategoryFilter.value = pageState.category;
+  if (partsCategoryFilter.value !== pageState.category) pageState.category = "ALL";
+
+  partsSupplierFilter.innerHTML =
+    '<option value="ALL">All suppliers</option>' +
+    data.suppliers.map(function (s) {
+      return '<option value="' + s.id + '">' + escapeHtml(s.name) + "</option>";
+    }).join("");
+  partsSupplierFilter.value = pageState.supplier;
+  if (partsSupplierFilter.value !== pageState.supplier) pageState.supplier = "ALL";
+
+  partsModelFilter.innerHTML =
+    '<option value="ALL">All models</option>' +
+    data.models.map(function (m) {
+      return '<option value="' + m.id + '">' + escapeHtml(m.name) + "</option>";
+    }).join("");
+  partsModelFilter.value = pageState.model;
+  if (partsModelFilter.value !== pageState.model) pageState.model = "ALL";
+
+  // Stock and replacement options are static in the markup; just restore values.
+  partsStockFilter.value = pageState.stock;
+  partsReplacementFilter.value = pageState.replacement;
 
   // Datalist suggestions for the part form's category input.
   el("category-options").innerHTML = data.categories.map(function (c) {
@@ -212,7 +254,22 @@ function renderCategoryFilter() {
 }
 
 function isFiltered() {
-  return effectiveQuery() !== "" || pageState.category !== "ALL";
+  return effectiveQuery() !== "" ||
+    pageState.category !== "ALL" || pageState.supplier !== "ALL" ||
+    pageState.model !== "ALL" || pageState.stock !== "ALL" ||
+    pageState.replacement !== "ALL";
+}
+
+// Build the RPC argument object from the current filter state ("ALL" -> null).
+function filterParams() {
+  return {
+    query: effectiveQuery(),
+    filter_category: pageState.category === "ALL" ? null : pageState.category,
+    filter_supplier: pageState.supplier === "ALL" ? null : Number(pageState.supplier),
+    filter_model: pageState.model === "ALL" ? null : Number(pageState.model),
+    filter_stock: pageState.stock === "ALL" ? null : pageState.stock,
+    filter_replacement: pageState.replacement === "ALL" ? null : pageState.replacement === "true"
+  };
 }
 
 function renderPartsTable() {
@@ -285,23 +342,83 @@ function gotoPartsPage(page) {
   loadPartsPage();
 }
 
+// Search-first: until the user loads or filters, show a prompt and fetch nothing.
+function renderInitialState() {
+  loaded = false;
+  partsCount = 0;
+  currentRows = [];
+  partsCountEl.innerHTML = "";
+  partsPagerEl.innerHTML = "";
+  partsTableWrap.innerHTML =
+    '<div class="state-panel"><div class="big">Search the catalog</div>' +
+    "<p>Filter by number, name, supplier, model or stock above &mdash; or load the " +
+    "whole catalog. Nothing is fetched until you do.</p>" +
+    '<button type="button" class="btn btn-primary" data-load-all>Load all parts</button>' +
+    "</div>";
+}
+
+// Any search or filter change reloads from page 0 (and flips to loaded).
+function applyFilters() {
+  pageState.page = 0;
+  loadPartsPage();
+}
+
 var partsSearchTimer = null;
 partsSearchEl.addEventListener("input", function () {
   clearTimeout(partsSearchTimer);
   partsSearchTimer = setTimeout(function () {
     pageState.query = partsSearchEl.value;
-    pageState.page = 0;
-    loadPartsPage();
+    applyFilters();
   }, 200);
 });
 
 partsCategoryFilter.addEventListener("change", function () {
   pageState.category = partsCategoryFilter.value;
-  pageState.page = 0;
-  loadPartsPage();
+  applyFilters();
+});
+
+partsSupplierFilter.addEventListener("change", function () {
+  pageState.supplier = partsSupplierFilter.value;
+  applyFilters();
+});
+
+partsModelFilter.addEventListener("change", function () {
+  pageState.model = partsModelFilter.value;
+  applyFilters();
+});
+
+partsStockFilter.addEventListener("change", function () {
+  pageState.stock = partsStockFilter.value;
+  applyFilters();
+});
+
+partsReplacementFilter.addEventListener("change", function () {
+  pageState.replacement = partsReplacementFilter.value;
+  applyFilters();
+});
+
+el("parts-clear-filters").addEventListener("click", function () {
+  pageState.query = "";
+  pageState.category = "ALL";
+  pageState.supplier = "ALL";
+  pageState.model = "ALL";
+  pageState.stock = "ALL";
+  pageState.replacement = "ALL";
+  partsSearchEl.value = "";
+  partsCategoryFilter.value = "ALL";
+  partsSupplierFilter.value = "ALL";
+  partsModelFilter.value = "ALL";
+  partsStockFilter.value = "ALL";
+  partsReplacementFilter.value = "ALL";
+  if (loaded) applyFilters(); else renderInitialState();
 });
 
 partsTableWrap.addEventListener("click", function (event) {
+  if (event.target.closest("[data-load-all]")) {
+    pageState.page = 0;
+    loadPartsPage();
+    return;
+  }
   var editBtn = event.target.closest("[data-edit]");
   if (editBtn) { openPartForm(Number(editBtn.getAttribute("data-edit"))); return; }
   var deleteBtn = event.target.closest("[data-delete]");
@@ -344,6 +461,10 @@ function clearModelSelection() {
 }
 
 async function openPartForm(partId) {
+  // The supplier dropdown and model multiselect come from the lookups; make sure
+  // they are loaded before opening the form.
+  await ensureLookups();
+
   partForm.reset();
   partFormMsg.textContent = "";
   partFormMsg.className = "form-msg";
@@ -451,6 +572,7 @@ partForm.addEventListener("submit", async function (event) {
 
   el("part-save-btn").disabled = false;
   closeModal(partModal);
+  loaded = true;   // surface the saved part even if the table was not yet loaded
   await refresh();
 });
 
@@ -533,6 +655,20 @@ function renderLookups() {
   el("models-list").innerHTML = modelItems ||
     '<li><span class="lk-sub">No models yet.</span></li>';
 }
+
+// The Suppliers & Models panel is collapsed by default; managing it is a rare
+// task, so we keep it out of the way and only fetch its data when revealed.
+var lookupGrid = el("lookup-grid");
+el("toggle-lookups-btn").addEventListener("click", async function () {
+  if (lookupGrid.hidden) {
+    await ensureLookups();   // load (once) before showing, so it never flashes empty
+    lookupGrid.hidden = false;
+    this.textContent = "Close";
+  } else {
+    lookupGrid.hidden = true;
+    this.textContent = "Manage";
+  }
+});
 
 el("supplier-add-form").addEventListener("submit", async function (event) {
   event.preventDefault();
@@ -649,9 +785,11 @@ function showNotConfigured() {
     "</div></div>");
 }
 
-async function loadAppData() {
-  await loadLookups();
-  await loadPartsPage();
+function loadAppData() {
+  // Fetch nothing on entry. The parts table waits for Load all / a filter, and
+  // the Suppliers & Models panel waits for its Manage toggle (or any action that
+  // needs the lookups). A bare visit to the admin page makes zero data queries.
+  renderInitialState();
 }
 
 // A valid login is not enough -- the account must also be in the admins table
