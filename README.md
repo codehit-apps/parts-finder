@@ -26,7 +26,7 @@ assets/
   js/admin.js           Auth guard + CRUD logic
 supabase/
   schema.sql            Tables, view, RLS policies, indexes, optional search RPC
-  seed.sql              Starter catalog (the 16 demo parts)
+  seed.sql              Starter catalog (100 parts across 7 brands)
 ```
 
 ## Data model (normalized)
@@ -54,8 +54,8 @@ joins back into a `supplier` string + `models` array per part.
 3. Paste the contents of `supabase/schema.sql`, run it.
 4. New query again, paste `supabase/seed.sql`, run it. (Re-runnable - it skips
    rows that already exist.)
-5. Verify: `select * from parts_with_details;` should return 16 rows, each with a
-   `supplier` and a `models` array.
+5. Verify: `select count(*) from parts_with_details;` should return 100, each row
+   with a `supplier` and a `models` array.
 
 ### 2. Lock down auth (admins only)
 
