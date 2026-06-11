@@ -10,3 +10,5 @@ Thumbs.db
 # publicly by GitHub Pages). Remove these lines if you want them in the repo.
 request.txt
 README.txt
+
+docs/*.local.md

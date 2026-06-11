@@ -253,11 +253,16 @@ function renderPartsFilters() {
   }).join("");
 }
 
-function isFiltered() {
-  return effectiveQuery() !== "" ||
-    pageState.category !== "ALL" || pageState.supplier !== "ALL" ||
+// Any active filter OTHER than the free-text search (used to decide whether a
+// too-short search term should still show a filtered list or just prompt).
+function hasStructuredFilter() {
+  return pageState.category !== "ALL" || pageState.supplier !== "ALL" ||
     pageState.model !== "ALL" || pageState.stock !== "ALL" ||
     pageState.replacement !== "ALL";
+}
+
+function isFiltered() {
+  return effectiveQuery() !== "" || hasStructuredFilter();
 }
 
 // Build the RPC argument object from the current filter state ("ALL" -> null).
@@ -368,7 +373,30 @@ partsSearchEl.addEventListener("input", function () {
   clearTimeout(partsSearchTimer);
   partsSearchTimer = setTimeout(function () {
     pageState.query = partsSearchEl.value;
-    applyFilters();
+    pageState.page = 0;
+    var raw = partsSearchEl.value.trim();
+
+    // A 1-2 char term is below the search minimum. On its own it must NOT dump
+    // the whole catalog -- show a keep-typing prompt instead (mirrors the finder).
+    if (raw.length > 0 && raw.length < MIN_QUERY && !hasStructuredFilter()) {
+      loaded = false;
+      partsCount = 0;
+      currentRows = [];
+      partsCountEl.innerHTML = "";
+      partsPagerEl.innerHTML = "";
+      partsTableWrap.innerHTML =
+        '<div class="state-panel"><div class="big">Keep typing</div>' +
+        "<p>Enter at least " + MIN_QUERY + " characters to search, or pick a filter.</p></div>";
+      return;
+    }
+
+    // Cleared box with no other filter: back to the search-first prompt.
+    if (raw === "" && !hasStructuredFilter()) {
+      renderInitialState();
+      return;
+    }
+
+    loadPartsPage();
   }, 200);
 });
 
@@ -410,7 +438,9 @@ el("parts-clear-filters").addEventListener("click", function () {
   partsModelFilter.value = "ALL";
   partsStockFilter.value = "ALL";
   partsReplacementFilter.value = "ALL";
-  if (loaded) applyFilters(); else renderInitialState();
+  // Clearing resets to the search-first prompt (no results + Load all button),
+  // rather than dumping the whole catalog.
+  renderInitialState();
 });
 
 partsTableWrap.addEventListener("click", function (event) {
